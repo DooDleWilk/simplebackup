@@ -20,7 +20,7 @@ Add the name of the VMs to backup in the `backup.list` file, the VM name which s
 
 Run the following command with your own VMware environment variables.
 ```
-~/P/SimpleBackup> python backup.py -s vcsa.domain.local -u administrator@vsphere.local -p P@ssW0rd! -nossl
+~/P/SimpleBackup> python backup.py -s vcsa.domain.local -u administrator@vsphere.local -p P@ssW0rd! -nossl --backupDS DS_Destination
 
 ```
 
