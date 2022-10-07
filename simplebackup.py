@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 
-from tools import cli, tasks, service_instance
+from pyVmomi import vmodl, vim
+from tools import cli, tasks, service_instance, pchelper
 from datetime import datetime
 
 data = {}
 nameOfSnapshot = 'Backup'
-backupToDatastore = '[NFS-Backup]'
+backupToDatastore = ''
 
 
 def createSnapshot(vm):
@@ -70,68 +71,89 @@ def main():
     Iterate through all datacenters and list VM info.
     """
     parser = cli.Parser()
+    parser.add_custom_argument('--backupDS', required=True, help='Datastore name to backup to.')
     args = parser.get_args()
-    si = service_instance.connect(args)
 
-    content = si.RetrieveContent()
-    children = content.rootFolder.childEntity
-    fileMgr = content.fileManager
-    diskMgr = content.virtualDiskManager
+    global backupToDatastore
+    backupToDatastore = '[' + args.backupDS + ']'
 
-    for child in children:  # Iterate though DataCenters
-        datacenter = child
-        data[datacenter.name] = {}  # Add data Centers to data dict
-        clusters = datacenter.hostFolder.childEntity
-        for cluster in clusters:  # Iterate through the clusters in the DC
-            # Add Clusters to data dict
-            data[datacenter.name][cluster.name] = {}
-            hosts = cluster.host  # Variable to make pep8 compliance
-            for host in hosts:  # Iterate through Hosts in the Cluster
-                hostname = host.summary.config.name
-                # Add VMs to data dict by config name
-                data[datacenter.name][cluster.name][hostname] = {}
-                vms = host.vm
-                vmsToBackup = open('backup.list', 'r')
-                for vmToBackup in vmsToBackup:
-                    for vm in vms:  # Iterate through each VM on the host
-                        if str(vmToBackup.rstrip()) in vm.summary.config.name:
-                            # Create folder
-                            folderPath = createFolderOnDatastore(fileMgr,
-                                                                 datacenter,
-                                                                 datetime.now().strftime("%Y-%m-%d") +
-                                                                     "/" + vm.summary.config.name)
+    try:
+        si = service_instance.connect(args)
+    except vim.fault.InvalidLogin as il:
+        print(il.msg)
+        return -1
 
-                            # Copy VMX file
-                            task = copyVmFileToDatastore(fileMgr,
-                                                         datacenter,
-                                                         vm.config.files.vmPathName,
-                                                         folderPath + "/" + vm.summary.config.name + ".vmx",
-                                                         True)
-                            tasks.wait_for_tasks(si, [task])
-                            print('File copy finished!')
+    try:
+        content = si.RetrieveContent()
+        children = content.rootFolder.childEntity
+        fileMgr = content.fileManager
+        diskMgr = content.virtualDiskManager
 
-                            # Create Snapshot of VM
-                            task = createSnapshot(vm)
-                            tasks.wait_for_tasks(si, [task])
-                            print('Snapshot creation finished!')
+        # Check Backup Datastore exists
+        datastore = pchelper.search_for_obj(content, [vim.Datastore], args.backupDS)
+        if not datastore:
+            print("Datastore [", args.backupDS, "] cannot be found...")
+            return -1
 
-                            # Copy the Parent VMDKs
-                            for device in vm.config.hardware.device:
-                                if device.__class__.__name__ == 'vim.vm.device.VirtualDisk':
-                                    task = copyVmDiskToDatastore(diskMgr,
-                                                                 datacenter,
-                                                                 device.backing.parent.fileName,
-                                                                 folderPath + "/" +
-                                                                     device.backing.parent.fileName.rsplit('/')[1],
-                                                                 False)
-                                    tasks.wait_for_tasks(si, [task])
-                                    print('Disk copy finished!')
-                            print('Backup finished!')
+        for child in children:  # Iterate though DataCenters
+            datacenter = child
+            data[datacenter.name] = {}  # Add data Centers to data dict
+            clusters = datacenter.hostFolder.childEntity
+            for cluster in clusters:  # Iterate through the clusters in the DC
+                # Add Clusters to data dict
+                data[datacenter.name][cluster.name] = {}
+                hosts = cluster.host  # Variable to make pep8 compliance
+                for host in hosts:  # Iterate through Hosts in the Cluster
+                    hostname = host.summary.config.name
+                    # Add VMs to data dict by config name
+                    data[datacenter.name][cluster.name][hostname] = {}
+                    vms = host.vm
+                    vmsToBackup = open('backup.list', 'r')
+                    for vmToBackup in vmsToBackup:
+                        for vm in vms:  # Iterate through each VM on the host
+                            if str(vmToBackup.rstrip()) in vm.summary.config.name:
+                                # Create folder
+                                folderPath = createFolderOnDatastore(fileMgr,
+                                                                     datacenter,
+                                                                     datetime.now().strftime("%Y-%m-%d") +
+                                                                         "/" + vm.summary.config.name)
 
-                            task = removeSnapshot(vm)
-                            tasks.wait_for_tasks(si, [task])
-                            print('Snapshot deletion finished!')
-                vmsToBackup.close()
+                                # Copy VMX file
+                                task = copyVmFileToDatastore(fileMgr,
+                                                             datacenter,
+                                                             vm.config.files.vmPathName,
+                                                             folderPath + "/" + vm.summary.config.name + ".vmx",
+                                                             True)
+                                tasks.wait_for_tasks(si, [task])
+                                print('File copy finished!')
+
+                                # Create Snapshot of VM
+                                task = createSnapshot(vm)
+                                tasks.wait_for_tasks(si, [task])
+                                print('Snapshot creation finished!')
+
+                                # Copy the Parent VMDKs
+                                for device in vm.config.hardware.device:
+                                    # if device.__class__.__name__ == 'vim.vm.device.VirtualDisk':
+                                    if isinstance(device, vim.vm.device.VirtualDisk):
+                                        task = copyVmDiskToDatastore(diskMgr,
+                                                                     datacenter,
+                                                                     device.backing.parent.fileName,
+                                                                     folderPath + "/" +
+                                                                         device.backing.parent.fileName.rsplit('/')[1],
+                                                                     False)
+                                        tasks.wait_for_tasks(si, [task])
+                                        print('Disk copy finished!')
+                                print('Backup finished!')
+
+                                task = removeSnapshot(vm)
+                                tasks.wait_for_tasks(si, [task])
+                                print('Snapshot deletion finished!')
+                    vmsToBackup.close()
+
+    except vmodl.MethodFault as error:
+        print("Caught vmodl fault : " + error.msg)
+        return -1
 
 
 # Start program
