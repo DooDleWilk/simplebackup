@@ -91,10 +91,10 @@ def main():
                 # Add VMs to data dict by config name
                 data[datacenter.name][cluster.name][hostname] = {}
                 vms = host.vm
+                vmsToBackup = open('backup.list', 'r')
                 for vm in vms:  # Iterate through each VM on the host
-                    vmsToBackup = open('backup.list', 'r')
                     for vmToBackup in vmsToBackup:
-                        if vmToBackup in vm.summary.config.name:
+                        if str(vmToBackup.rstrip()) in vm.summary.config.name:
                             # Create folder
                             folderPath = createFolderOnDatastore(fileMgr,
                                                                  datacenter,
@@ -131,7 +131,7 @@ def main():
                             task = removeSnapshot(vm)
                             tasks.wait_for_tasks(si, [task])
                             print('Snapshot deletion finished!')
-                    vmsToBackup.close()
+                vmsToBackup.close()
 
 
 # Start program
