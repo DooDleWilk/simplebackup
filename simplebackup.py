@@ -92,8 +92,8 @@ def main():
                 data[datacenter.name][cluster.name][hostname] = {}
                 vms = host.vm
                 vmsToBackup = open('backup.list', 'r')
-                for vm in vms:  # Iterate through each VM on the host
-                    for vmToBackup in vmsToBackup:
+                for vmToBackup in vmsToBackup:
+                    for vm in vms:  # Iterate through each VM on the host
                         if str(vmToBackup.rstrip()) in vm.summary.config.name:
                             # Create folder
                             folderPath = createFolderOnDatastore(fileMgr,
