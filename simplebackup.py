@@ -131,6 +131,7 @@ def main():
                             task = removeSnapshot(vm)
                             tasks.wait_for_tasks(si, [task])
                             print('Snapshot deletion finished!')
+                    vmsToBackup.close()
 
 
 # Start program
